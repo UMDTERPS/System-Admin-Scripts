@@ -1,0 +1,24 @@
+#!/bin/bash
+WORKING_DIRECTORY="/mnt/vol-123456"
+if [ ! -d "$WORKING_DIRECTORY" ]; then
+        mkdir -p $WORKING_DIRECTORY
+fi
+cd $WORKING_DIRECTORY
+
+MONGODUMP_PATH="/usr/bin/mongodump"
+#MONGO_DATABASE=mongo_00
+TIMESTAMP=`date +%F-%H%M`
+S3_BUCKET_NAME="mongo_bongo"
+
+# Create backup
+$MONGODUMP_PATH #-d $MONGO_DATABASE #2>&1 >> /var/log/mongodb/mongodump.log
+
+# Add timestamp to backup
+mv dump mongodb-$TIMESTAMP
+tar -zcvf mongodb-$TIMESTAMP.tar.gz mongodb-$TIMESTAMP
+
+# Upload to S3
+s3cmd put mongodb-$TIMESTAMP.tar.gz s3://$S3_BUCKET_NAME/mongodb-$TIMESTAMP.tar.gz
+
+#Deletes old mongo backups
+rm -rf mongodb-$TIMESTAMP
