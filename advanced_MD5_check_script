@@ -1,0 +1,76 @@
+s script creates a MD5 Hash for Mongodumps, backs up mongo, and uploads the mongodump
+#if the MD5 hash hash changed. 
+#MD5_1 = _$(md5sum ’/data/MongoDumps’ | cut -d ’ ’ -f 1)
+#MD5_2 = _$(md5sum ’/data/MongoDumps’ | cut -d ’ ’ -f 1)
+#MD5_ORIG=$(md5sum -b "$ORG_FILE")
+#MD5_NEW=$(md5sum -b "$NEW_FILE")
+
+WORKING_DIRECTORY="/data/MongoDumps"
+MONGODUMP_PATH="/usr/bin/mongodump"
+PREVIOUS_MONGO_DUMP_TAR="previous-dump.tar"
+MONGO_DATABASE="cobrain-webapp-v2-production"
+TIMESTAMP=`date +%F-%H%M`
+S3_BUCKET_NAME="Mongodump_Production"
+
+
+do_mongo_backup() {
+
+	# Create backup
+	$MONGODUMP_PATH -d $MONGO_DATABASE #2>&1 >> /var/log/mongodb/mongodump.log
+
+	# Add timestamp to backup
+	mv dump mongodb-$TIMESTAMP
+	tar cf mongodb-$TIMESTAMP.tar mongodb-$TIMESTAMP
+
+	#Deletes old mongo backups
+	rm -rf mongodb-$TIMESTAMP
+}
+
+upload_to_S3() {
+	
+	# Bzip the File
+	bzip2 -zk mongodb-$TIMESTAMP.tar
+	# Upload to S3
+	s3cmd put mongodb-$TIMESTAMP.tar.bz2 s3://$S3_BUCKET_NAME/mongodb-$TIMESTAMP.tar.bz2
+	update_previous_file()
+}
+
+md5_apply_and_check() {
+
+	#Apply Md5 hash
+	MD5 $WORKING_DIRECTORY
+}
+
+update_previous_file() {
+	if [ -a $PREVIOUS_MONGO_DUMP_TAR]; then
+		rm $PREVIOUS_MONGO_DUMP_TAR
+	fi
+	ln -s mongodb-$TIMESTAMP.tar $PREVIOUS_MONGO_DUMP_TAR
+}
+
+#checks to see the mongo dir is there and if not it creates it
+if [ ! -d "$WORKING_DIRECTORY" ]; then
+        mkdir -p $WORKING_DIRECTORY
+fi
+
+cd $WORKING_DIRECTORY
+
+#runs a backup
+#Checks to see if the MD5 hashes are the same if not, it will upload to S3
+do_mongo_backup
+
+MD5_1=$(md5sum mongodb-$TIMESTAMP.tar)
+
+if [ -a $PREVIOUS_MONGO_DUMP_TAR]; then
+	MD5_2=$(md5sum $PREVIOUS_MONGO_DUMP_TAR)
+	if [ $MD5_1 != $MD5_2 ]; then 
+		echo "The data in the dir is NOT the same"
+		upload_to_S3
+	elif [ $MD5_1 == $MD5_2 ]; then 
+		echo " The data in the dir is the same"
+		rm -rf mongodb-$TIMESTAMP
+	fi
+else
+	upload_to_S3
+fi
+
