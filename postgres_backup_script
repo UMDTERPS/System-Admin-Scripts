@@ -1,0 +1,35 @@
+ubuntu@ip-10-248-35-200:~$ cat dump2s3.sh
+#!/bin/bash
+
+export TZ=EST5EDT
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games
+
+# PostgreSQL Environment
+export PGHOST=jojo.amazon_rds.us-west-2.rds.amazonaws.com
+export PGUSER=jackson
+export PGDATABASE=jojo
+
+BUCKET="s3://jackson/datadumps/whoootooodb/
+
+# Temp location for intermediate storage before moving to AWS S3
+tmpdir=/mnt/tmp
+
+main() {
+
+    if [ ! -w "$tmpdir" ]; then
+        echo "Error: Temp storage directory $tmpdir does not exist or is not writable"
+        exit 1
+    fi
+
+    tmpfile=${tmpdir}/jojo_$(date +%Y.%m.%d-%H.%M)_${PGHOST}.gz
+
+    echo "Dumping to local disk at $tmpfile"
+    pg_dump -U $PGUSER -h $PGHOST --no-owner $PGDATABASE | gzip -c > $tmpfile
+    /bin/ls -l $tmpfile
+    echo "Moving to S3 at $BUCKET"
+    aws s3 mv $tmpfile $BUCKET
+    echo "Backup complete."
+}
+
+main
